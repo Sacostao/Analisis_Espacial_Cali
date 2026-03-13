@@ -1,0 +1,397 @@
+---
+title: "Taller 3: Econometría Espacial"
+author: "Samuel Acosta Ochoa"
+format:
+  html: 
+       embed-resources: true
+editor: visual
+---
+
+# Economías de Aglomeración: Aplicación para Cali
+
+Este trabajo busca analizar las características de la concentración empresarial en Cali a la luz de la teoría de las Economías de Aglomeración y la Econometría Espacial, específicamente para el sector de "Fabricación de Muebles para el Hogar" (CIIU 3611).
+
+Carga de datos y librerías
+
+```{r}
+#| message: false
+#| warning: false
+library(tidyverse)
+library(sf)
+library(ggview)
+library(ggnewscale)
+library(viridis)
+library(dbmss)
+library(spatstat)
+library(ggplot2)
+library(dplyr)
+library(stringi)
+library(tidyr)
+library(stats)
+```
+
+```{r}
+#| message: false
+#| warning: false
+setwd("C:/Users/samue/OneDrive/Escritorio/Economía/Economía Cuantitativa/Econometría espacial/Ejercicio 3 Cali")
+
+# Cargar barrios de Cali
+barriosCali <- st_read("BARRIOS.shp")
+crs_cali <- st_crs(barriosCali)
+
+# Cargar base de datos del censo
+data_raw <- read.csv("datar.csv", header = TRUE, sep = ",", dec = ".")
+```
+
+Procesamiento de los datos
+
+```{r}
+#| message: false
+#| warning: false
+# Filtramos específicamente por el código CIIU 3611
+data_sector <- data_raw %>% 
+  filter(ciiu_4 == 3611)
+
+# Convertimos los datos filtrados a objeto espacial (puntos)
+points_sector <- st_as_sf(data_sector, 
+                          coords = c("x", "y"), 
+                          crs = crs_cali)
+```
+
+## 1. Distribución de las empresas
+
+Mapa de densidad y distribución
+
+```{r}
+# Definimos un objeto de mapa base 
+mapa_base <- ggplot() +
+  # Capa de barrios (Fondo gris claro)
+  geom_sf(data = barriosCali, 
+          fill = "white", # Fondo blanco para máximo contraste
+          color = "grey85", # Líneas de barrio muy sutiles
+          linewidth = 0.2) +
+  theme_void()
+
+# Añadimos las capas de datos al mapa base
+mapa_final <- mapa_base +
+  
+  # Nueva escala para la densidad
+  new_scale_fill() +
+  
+  # CAPA DE DENSIDAD KERNEL AJUSTADA
+  stat_density_2d(data = data_sector,
+                  aes(x = x, y = y, fill = after_stat(level)),
+                  geom = "polygon",
+                  bins = 15, 
+                  alpha = 0.3, # Alta transparencia
+                  color = NA) +
+  
+  # CAPA DE PUNTOS (Distribución exacta)
+  geom_sf(data = points_sector, 
+          color = "red3", 
+          size = 0.4, 
+          alpha = 0.6) + 
+  
+  # Configuración estética de la densidad (Magma suave)
+  scale_fill_viridis_c(option = "magma",
+                       name = "Densidad",
+                       labels = c("Baja", "Alta"),
+                       breaks = function(x) range(x),
+                       guide = guide_colorbar(barwidth = unit(0.3, "cm"), 
+                                              barheight = unit(3, "cm"),
+                                              title.position = "top")) +
+  
+  # Títulos y formato
+  labs(title = "Distribución Espacial: Fabricación de Muebles para el Hogar",
+       subtitle = "Cali, Sector CIIU 3611 - Censo Económico 2005") +
+  
+  theme(legend.position = "right",
+        plot.title = element_text(face = "bold", hjust = 0.5, size = 12, margin = margin(b=5)),
+        plot.subtitle = element_text(hjust = 0.5, size = 10, margin = margin(b=10)),
+        plot.caption = element_text(size = 7, hjust = 0, color = "grey40"),
+        legend.title = element_text(size = 9, face = "bold"))
+
+# Visualizar el mapa
+print(mapa_final)
+```
+
+```{r}
+# Se crea un objeto específico para los gráficos de barras
+
+df_visualizacion <- data_raw %>%
+  filter(ciiu_4 == 3611) %>%
+  mutate(
+    barrio = stri_trans_general(barrio, "Latin-ASCII"),
+    comuna = as.character(cod_comuna) 
+  )
+
+# TOP 5 BARRIOS 
+top_barrios <- df_visualizacion %>%
+  group_by(barrio) %>%
+  summarise(n_empresas = n()) %>%
+  arrange(desc(n_empresas)) %>%
+  slice(1:5)
+
+plot_barrios <- ggplot(top_barrios, aes(x = reorder(barrio, n_empresas), y = n_empresas)) +
+  geom_bar(stat = "identity", fill = "#1f77b4") +
+  geom_text(aes(label = n_empresas), hjust = -0.3, fontface = "bold") +
+  coord_flip() +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+  labs(
+    title = "Top 5 Barrios con mayor presencia de la industria",
+    x = "Barrio", y = "Número de Empresas"
+  ) +
+  theme_minimal()
+
+# TOP 5 COMUNAS
+top_comunas <- df_visualizacion %>%
+  group_by(comuna) %>%
+  summarise(n_empresas = n()) %>%
+  arrange(desc(n_empresas)) %>%
+  slice(1:5)
+
+plot_comunas <- ggplot(top_comunas, aes(x = reorder(paste("Comuna", comuna), n_empresas), y = n_empresas)) +
+  geom_bar(stat = "identity", fill = "#1f77b4") +
+  geom_text(aes(label = n_empresas), hjust = -0.3, fontface = "bold") +
+  coord_flip() +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+  labs(
+    title = "Top 5 Comunas con mayor presencia de la industria",
+    x = "Comuna", y = "Número de Empresas"
+  ) +
+  theme_minimal()
+
+# Visualizar los gráficos
+print(plot_barrios)
+print(plot_comunas)
+```
+
+**Análisis de la distribución espacial**
+
+El mapa revela un patrón claro de concentración geográfica. La mayor intensidad de la actividad (el área amarilla/naranja del mapa de densidad) se localiza en el sector centro-occidental de la ciudad. En concordancia con lo anterior, las comunas con mayor número de establecimientos son: 9, 8, 19, 13 y 10, respectivamente. Por su parte, los barrios con mayor presencia de empresas de fabricación de muebles para el hogar son "El Cedro", "Bretaña", "Belalcázar", el Barrio Obrero y "Alfonso López III".
+
+En la ciudad de Cali, estas comunas centro-occidentales poseen una vocación productiva arraigada en la transformación industrial de la madera y artesanías tradicionales: la Comuna 8, con el Barrio Obrero como epicentro histórico desde 1919 (fundado por artesanos ebanistas vinculados al ferrocarril), alberga un mercado laboral especializado en tallado, lacado y tapicería, atrayendo insumos del Pacífico y Amazonía; la Comuna 9 concentra proveedores de maderas como cedro y chanul, fomentando economías de escala externas; y las comunas 10, 13 y 19 aportan con encadenamientos logísticos cercanos al comercio central. Se considera que Cali es el tercer polo productor de muebles a nivel nacional luego de Bogotá y Medellín, sector que contribuye unos 22.850 puestos de trabajo al total del empleo en el país..
+
+El núcleo de mayor densidad empresarial descrito anteriormente no solo concentra la mayor cantidad de establecimientos (puntos rojos), sino que la función de densidad tipo Kernel, usada para medir las distancias entre las empresas de forma continua (no limitada por fronteras político-administrativas), sugiere que la probabilidad de interacción espacial entre firmas es máxima en ese cuadrante. Lo anterior se da debido a las ventajas de la proximidad geográfica entre empresas dentro de un mismo clúster que, según la teoría de las Economías de Aglomeración, debe generar retornos crecientes a escala. En este caso, la concentración de las empresas en el espacio puede estarse generando por las siguientes razones:
+
+-   **Labor Pooling (Mercado laboral compartido):** La concentración permite que las empresas tengan acceso a una oferta de mano de obra altamente especializada (talladores, lacadores, tapiceros) que reside o trabaja en la misma zona, reduciendo los costos de búsqueda e incluso laborales.
+
+-   **Proveedores especializados:** La cercanía física permite la existencia de economías de escala externas a la empresa, pero internas al clúster. Por ejemplo, un sólo proveedor de maderas o cojinería puede abastecer a la mayoría de talleres pequeños, reduciendo los costos logísticos y de inventario.
+
+-   **Desbordamiento de conocimiento:** En la industria del mueble, el diseño y las técnicas de producción pueden circular rápidamente a través del contacto "cara a cara". Estar fuera del núcleo significaría quedar rezagado de las tendencias y procesos de innovación del sector.
+
+## 2. Índices de Concentración y Especialización
+
+```{r}
+# CÁLCULO DE ÍNDICES DE CONCENTRACIÓN
+
+data_indices <- data_raw %>%
+  rename(empleados = ue026a1_nu) %>%
+  mutate(empleados = as.numeric(empleados))
+
+total_ciudad <- data_indices %>%
+  group_by(cod_barrio) %>%
+  summarise(E_j = sum(empleados, na.rm = TRUE)) %>%
+  mutate(x_j = E_j / sum(E_j))
+
+E_total <- sum(total_ciudad$E_j)
+data_3611 <- data_indices %>% filter(ciiu_4 == 3611)
+
+# Cálculo de participaciones del sector y del total
+sector_3611 <- data_3611 %>%
+  group_by(cod_barrio) %>%
+  summarise(e_ij = sum(empleados, na.rm = TRUE)) %>%
+  full_join(total_ciudad, by = "cod_barrio") %>%
+  mutate(e_ij = replace_na(e_ij, 0),
+         z_j = e_ij / sum(e_ij))
+
+E_i <- sum(sector_3611$e_ij)
+
+# 2. Cálculo de Índices
+s_i <- data_3611$empleados / E_i
+IHH <- sum(s_i^2)
+sum_x2 <- sum(sector_3611$x_j^2)
+G <- sum((sector_3611$z_j - sector_3611$x_j)^2)
+
+# Índices principales
+EG_gamma <- (G - (1 - sum_x2) * IHH) / ((1 - sum_x2) * (1 - IHH))
+MS_gamma <- (((sum(sector_3611$z_j^2) - sum_x2) / (1 - sum_x2)) - IHH) / (1 - IHH)
+
+# Isard (IQ) y Cociente de Localización (LQ)
+sector_3611 <- sector_3611 %>% 
+  mutate(
+    IQ_part = abs(z_j - x_j),
+    # LQ: (Participación en el sector / Participación en el empleo total)
+    LQ = (e_ij / E_j) / (E_i / E_total)
+  )
+
+IQ <- 0.5 * sum(sector_3611$IQ_part, na.rm = TRUE)
+
+# 3. Significancia Estadística para EG
+# H0: gamma = 0 (Distribución aleatoria)
+# H1: gamma > 0 (Distribución concentrada)
+z_score <- EG_gamma / (sqrt(2) * IHH) 
+p_value <- 2 * (1 - pnorm(abs(z_score)))
+
+# 4. Tabla de resultados
+resultados <- data.frame(
+  Indice = c("IHH", "EG", "MS", "IQ (Isard)", "Z-Score (EG)", "P-Value (EG)"),
+  Valor = c(round(IHH, 6), round(EG_gamma, 6), round(MS_gamma, 6), round(IQ, 4), round(z_score, 4), round(p_value, 6))
+)
+
+print(resultados)
+```
+
+**IHH: 0.0115**
+
+Este índice mide la concentración del tamaño de las empresas dentro del sector.
+
+-   Un valor de **0.0115** (cercano a 0) indica un sector altamente atomizado en términos de tamaño de las firmas medido por el empleo, es decir, sin tener en cuenta la distancia geográfica.
+
+-   La industria de muebles en Cali no está dominada por grandes firmas con alto poder de mercado (monopolios). Por el contrario, está compuesta por una gran cantidad de pequeñas unidades productivas (pymes y talleres). Esto sugiere un mercado con bajas barreras de entrada.
+
+-   Lo anterior es coherente con los datos del Censo, debido a que la mayoría de empresas tienen10 empleados o menos, y la más grande tiene 24.
+
+**EG: 0.0399**
+
+Es la medida más robusta de aglomeración, pues controla por el tamaño de las plantas y la distribución general de la industria en la ciudad.
+
+-   Valores entre **0.02 y 0.05** representan una concentración moderada.
+
+-   Existe una fuerza de atracción real en el sector. Las empresas de muebles en Cali tienen una tendencia a agruparse que supera lo que se esperaría simplemente por azar. Esto valida la existencia de externalidades de aglomeración (por compartir proveedores, mano de obra especializada o flujos de información).
+
+-   Al realizar la prueba de significancia, el valor p del test es 0.013 (\< 0.05), por lo que se rechaza la hipótesis nula de concentración aleatoria. Es decir, la concentración moderada es estadísticamente significativa.
+
+**Maurel y Sédillot (MS): -0.0308**
+
+Este índice suele comportarse de manera similar al EG, pero su valor negativo es un resultado a destacar.
+
+-   Un valor negativo indica que, al comparar la distribución del sector contra la distribución del empleo total, el sector de muebles muestra una dispersión relativa frente a la masa crítica de la economía de Cali.
+
+-   Mientras que el EG muestra que las empresas de muebles presentan concentración (clúster), el MS sugiere que esta industria no sigue los núcleos de concentración masiva de la ciudad. El sector de muebles se concentra en otros enclaves tradicionales, a menudo alejados de los distritos de negocios principales o demás clusteres.
+
+**IQ: 0.5284**
+
+Este valor se encuentra en el rango teórico de 0 a 1.
+
+-   Un **0.5284** indica una disimilitud espacial alta (superior al 50%).
+
+-   Existe una diferencia estructural entre la ubicación de los muebles y la ubicación del empleo general en la ciudad. Si se quisiera que la industria de muebles estuviera distribuida exactamente igual que el resto de la economía de la ciudad, debería reubicarse al 52.8% del empleo del sector. Esto refuerza la idea de que los muebles tienen una vocación territorial específica.
+
+-   Este índice debe diferenciarse de una medida únicamente de concentración, ya que el IQ compara la distribución del empleo del sector en cada barrio frente a la distribución del empleo total en las mismas unidades geográficas.
+
+La fabricación de muebles en Cali es una industria de pequeños productores (IHH bajo) que se benefician de estar cerca unos de otros (EG positivo y moderado), pero que operan en distritos industriales especializados que son muy diferentes al resto de la configuración urbana de la ciudad (IQ alto).
+
+## 3. Mapa de distribución del Location Quotient (LQ)
+
+```{r}
+# MAPA COCIENTES DE LOCALIZACIÓN
+
+mapa_final <- barriosCali %>%
+  left_join(sector_3611, by = c("COD_BARRIO" = "cod_barrio")) %>%
+  mutate(LQ = ifelse(is.na(LQ), 0, LQ))
+
+p95 <- quantile(mapa_final$LQ[mapa_final$LQ > 0], 0.95, na.rm = TRUE)
+
+mapa_final <- mapa_final %>%
+  mutate(LQ_plot = case_when(
+    LQ == 0 ~ NA_real_,
+    LQ > p95 ~ p95,
+    TRUE ~ LQ
+  ))
+
+mi_mapa <- ggplot(data = mapa_final) +
+  geom_sf(aes(fill = LQ_plot), color = "grey60", linewidth = 0.08) +
+  scale_fill_gradient2(
+    low      = "#2166ac",
+    mid      = "#f7f7f7",
+    high     = "#d6604d",
+    midpoint = 1,
+    limits   = c(0, p95),
+    na.value = "grey90",
+    name     = "LQ",
+    labels   = function(x) ifelse(x == p95, paste0(">", round(p95, 1)), round(x, 1))
+  ) +
+  labs(
+    title    = "Especialización por Barrio: Fabricación de Muebles para el Hogar",
+    subtitle = "Cali, Sector CIIU 3611 – Censo Económico 2005",
+    caption  = paste0("Barrios grises: sin presencia del sector. ",
+                      "Valores truncados en percentil 95 (LQ = ", round(p95, 1), ")")
+  ) +
+  theme_void(base_size = 11) +
+  theme(
+    plot.title    = element_text(face = "bold", size = 13, hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5, color = "grey40"),
+    plot.caption  = element_text(size = 8, color = "grey50", hjust = 0.5),
+    legend.position = "right"
+  )
+
+mi_mapa
+```
+
+El mapa de Cociente de Localización (LQ) identifica la intensidad relativa del sector de fabricación de muebles (3611) en cada unidad administrativa (barrio). Los valores superiores a 1 indican que un barrio es "relativamente especializado", ya que posee una proporción de empleo en este sector mayor a la que se esperaría dada la participación del barrio en el empleo total de Cali. Sin embargo, los hallazgos muestran valores que llegan hasta 30, lo que no solo indica especialización, sino una dependencia económica o vocación productiva de estos barrios hacia la industria mueblera.
+
+Espacialmente, la especialización no es un fenómeno disperso, sino un enclave claramente delimitado en el centro-occidente de Cali, lo cual es coherente con el mapa de densidad calcualdo en el primer punto del documento. Los "puntos calientes" del mapa coinciden con barrios de tradición industrial como El Obrero (Comuna 9). Estos barrios se encuentran en el eje vial histórico de la ciudad, facilitando el acceso tanto a la mano de obra del oriente como a los flujos comerciales del norte y sur. Mientras que el resto de la ciudad (áreas en blanco/gris) muestra una ausencia considerable o total de esta industria, este núcleo central actúa como un imán de actividad productiva. Además, esta visualización da sentido al Índice IQ calculado previamente.
+
+## 4. Funciones Kd y M
+
+Preparación de datos y objetos
+
+```{r}
+# PREPARACIÓN DEL OBJETO DE PUNTOS PESADOS (WMPPP)
+# Definimos la ventana de observación basada en las coordenadas de Cali
+ventana <- owin(range(data_raw$x), range(data_raw$y))
+
+# Creamos el patrón de puntos. Es vital que 'marks' sea un factor.
+puntos_ppp <- ppp(x = data_raw$x, 
+                  y = data_raw$y, 
+                  window = ventana, 
+                  marks = as.factor(data_raw$ciiu_4))
+
+# Convertimos al formato wmppp que requiere el paquete dbmss
+puntos_totales <- as.wmppp(puntos_ppp)
+
+# 3. DEFINICIÓN DE PARÁMETROS DE ANÁLISIS
+sector_interes <- "3611"      # Código del sector de muebles
+distancias <- seq(0, 5000, by = 100) # Análisis de 0 a 5km cada 100 metros
+```
+
+### Función Kd (Duranton y Overman)
+
+```{r}
+#| message: false
+#| warning: false
+# Calculamos la función observada y las bandas de confianza (Monte Carlo)
+kd_env <- KdEnvelope(puntos_totales, 
+                     ReferenceType = sector_interes, 
+                     r = distancias, 
+                     NumberOfSimulations = 900,
+                     Global = TRUE)
+
+# Graficar Kd
+plot(kd_env, main = "Función Kd: Aglomeración Absoluta")
+```
+
+### Función M (Marcon y Puech)
+
+```{r}
+#| message: false
+#| warning: false
+# Calculamos la función observada y las bandas de confianza
+m_env <- MEnvelope(puntos_totales, 
+                   ReferenceType = sector_interes, 
+                   r = distancias, 
+                   NumberOfSimulations = 900,
+                   Global = TRUE)
+
+# Graficar M
+plot(m_env, main = "Función M: Aglomeración Relativa")
+```
+
+**Función Kd: Densidad local**
+
+Este gráfico mide la dispersión o concentración del sector respecto al total de sectores. En este caso, la funcióon Kd calculada para la producción de muebles del hogar se acerca al límite superior del intervalo de confianza, alejándose de la media, pero no sale de la zona gris. Esto muestra que el sector no presenta una concentración local estadísticamente signifcativa de acuerdo con la función Kd.
+
+**Función M: Concentración relativa**
+
+Entre los 0 y los 500 metros, hay una concentración relativa estadísticamente significativa del empleo respecto al área total. La densidad relativa del empleo a los 0 metros de distancia entre establecimientos es del triple respecto al área total, y a los 100-200 metros es del doble.
